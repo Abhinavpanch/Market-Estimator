@@ -1,0 +1,168 @@
+# Training universe -- one ticker per line.
+# Lines starting with # are comments/labels, ignored by the loader.
+# Blank lines are ignored too. Just add or delete a line to change the
+# universe -- no quotes, no commas, no brackets needed.
+# After editing, re-run: py retrain_all.py --holdout --sentiment
+
+# Tech
+AAPL
+MSFT
+GOOGL
+NVDA
+ADBE
+
+# Finance
+JPM
+BAC
+GS
+MS
+AXP
+
+# Healthcare
+JNJ
+PFE
+UNH
+ABBV
+MRK
+
+# Energy
+XOM
+CVX
+COP
+
+# Consumer staples
+KO
+PG
+WMT
+COST
+
+# Consumer discretionary
+AMZN
+HD
+NKE
+MCD
+
+# Industrials
+BA
+CAT
+GE
+
+# Utilities / materials / communication
+NEE
+LIN
+DIS
+
+# My Choices
+LICI.NS
+BTC-USD
+BLK
+GC=F
+ROCK30220-USD
+BSE.NS
+
+# Technology
+AVGO
+CRM
+ORCL
+AMD
+INTC
+
+# Finance
+V
+MA
+WFCme
+C
+SCHW
+
+# Healthcare
+LLY
+AMGN
+TMO
+ABT
+BMY
+
+# Energy
+SLB
+EOG
+PXD
+MPC
+PSX
+
+# Consumer staples
+PEP
+PM
+MO
+MDLZ
+TGT
+
+# Consumer discretionary
+TSLA
+SBUX
+LOW
+BKNG
+TJX
+
+# Industrials
+HON
+UPS
+RTX
+LMT
+DE
+
+# Utilities / materials / communication
+NFLX
+VZ
+T
+CMCSA
+AMT
+
+# Semiconductors
+TXN
+MU
+ASML
+
+# Cloud / software
+NOW
+INTU
+PANW
+CRWD
+
+# Insurance
+PGR
+ALL
+TRV
+MET
+PRU
+
+# Biotech
+REGN
+VRTX
+BIIB
+
+# Pipelines
+KMI
+WMB
+OKE
+ET
+
+# Consumer staples (new)
+KMB
+GIS
+
+# Retail
+ROST
+DG
+ULTA
+
+# Defense
+NOC
+GD
+LHX
+
+# Materials
+SHW
+APD
+FCX
+
+# My Choices
+ADANIENT.NS

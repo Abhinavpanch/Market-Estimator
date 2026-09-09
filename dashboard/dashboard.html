@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AI Stock Estimator — Live Dashboard</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0f1115; --panel:#171a21; --panel-border:#262b36;
+    --ink:#e8eaed; --muted:#9aa3b2;
+    --green:#3ddc84; --red:#ff6b6b; --accent:#7aa2ff;
+    --font: "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{ margin:0; background:var(--bg); color:var(--ink); font-family:var(--font); padding:32px 24px 64px; }
+  .wrap{ max-width:1100px; margin:0 auto; }
+  header{ margin-bottom:28px; }
+  header h1{ margin:0 0 6px 0; font-size:24px; }
+  header p{ margin:0; color:var(--muted); font-size:14px; }
+
+  h3.section-title{
+    font-size:15px; color:var(--muted); text-transform:uppercase; letter-spacing:0.06em;
+    margin:36px 0 14px 0; border-bottom:1px solid var(--panel-border); padding-bottom:8px;
+  }
+
+  .predict-panel{
+    background:var(--panel); border:1px solid var(--panel-border); border-radius:14px;
+    padding:22px 24px; margin-bottom:12px;
+  }
+  .predict-controls{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  select, button{
+    font-family:var(--font); font-size:14px; padding:9px 14px; border-radius:8px;
+    border:1px solid var(--panel-border); background:#0c0e13; color:var(--ink);
+  }
+  button{ background:var(--accent); color:#0c0e13; font-weight:600; cursor:pointer; border:none; }
+  button:disabled{ opacity:0.5; cursor:default; }
+  label.auto{ font-size:13px; color:var(--muted); display:flex; align-items:center; gap:6px; }
+
+  .live-dot{
+    width:8px; height:8px; border-radius:50%; background:var(--green);
+    display:inline-block; animation:pulse 1.6s infinite; margin-right:6px;
+  }
+  @keyframes pulse{ 0%{opacity:1;} 50%{opacity:0.3;} 100%{opacity:1;} }
+
+  .prediction-result{ margin-top:18px; }
+  .prediction-result .placeholder{ color:var(--muted); font-size:13px; }
+  .pred-grid{ display:grid; grid-template-columns:repeat(auto-fit, minmax(140px,1fr)); gap:14px; }
+  .pred-card{ background:#0c0e13; border:1px solid var(--panel-border); border-radius:10px; padding:14px 16px; }
+  .pred-card .metric-label{ font-size:11px; color:var(--muted); margin-bottom:4px; text-transform:uppercase; }
+  .pred-card .metric-value{ font-size:20px; font-weight:600; font-family:Consolas, monospace; }
+  .pred-timestamp{ font-size:12px; color:var(--muted); margin-top:10px; }
+  .error-msg{ color:var(--red); font-size:13px; }
+
+  .cards{ display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:14px; margin-bottom:20px; }
+  .card{ background:var(--panel); border:1px solid var(--panel-border); border-radius:12px; padding:16px 18px; }
+  .card .metric-label{ font-size:12px; color:var(--muted); margin-bottom:6px; }
+  .card .metric-value{ font-size:22px; font-weight:600; font-family:Consolas, monospace; }
+  .card .metric-sub{ font-size:12px; color:var(--muted); margin-top:4px; }
+  .pos{ color:var(--green); } .neg{ color:var(--red); }
+
+  .chart-box{ background:var(--panel); border:1px solid var(--panel-border); border-radius:12px; padding:18px; margin-bottom:20px; }
+  .chart-box canvas{ max-height:320px; }
+
+  table{ width:100%; border-collapse:collapse; font-size:13px; }
+  th, td{ text-align:left; padding:8px 10px; border-bottom:1px solid var(--panel-border); }
+  th{ color:var(--muted); font-weight:600; font-size:11px; text-transform:uppercase; }
+  td.mono{ font-family:Consolas, monospace; }
+  .table-wrap{
+    background:var(--panel); border:1px solid var(--panel-border); border-radius:12px;
+    padding:6px 18px; max-height:420px; overflow-y:auto;
+  }
+  .empty-state{
+    background:var(--panel); border:1px dashed var(--panel-border); border-radius:12px;
+    padding:20px; color:var(--muted); font-size:13px; line-height:1.6;
+  }
+  .empty-state code{ background:#0c0e13; padding:2px 6px; border-radius:4px; color:var(--accent); font-size:12px; }
+  footer{ margin-top:40px; color:var(--muted); font-size:12px; text-align:center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>AI Stock Estimator — Live Dashboard</h1>
+    <p>Backtest results below refresh automatically from your last script run. Predictions are live, on demand.</p>
+  </header>
+
+  <h3 class="section-title">Live prediction</h3>
+  <div class="predict-panel">
+    <div class="predict-controls">
+      <select id="tickerSelect"><option>Loading tickers...</option></select>
+      <button id="predictBtn">Predict</button>
+      <label class="auto">
+        <input type="checkbox" id="autoRefresh"> Auto-refresh every 30s
+      </label>
+    </div>
+    <div class="prediction-result" id="predictionResult">
+      <p class="placeholder">Select a stock and click Predict to get a live, on-demand estimate from your trained model.</p>
+    </div>
+  </div>
+
+  <h3 class="section-title">Training universe — backtest results</h3>
+  <div id="trainingSection">
+    <p class="placeholder" style="color:var(--muted);">Loading...</p>
+  </div>
+
+  <h3 class="section-title">Holdout universe — unseen-stock test</h3>
+  <div id="holdoutSection">
+    <p class="placeholder" style="color:var(--muted);">Loading...</p>
+  </div>
+
+  <footer>
+    Not financial advice. Backtests are simplified simulations — see the project README for full caveats.
+    Live predictions fetch fresh data on each request and may take a few seconds.
+  </footer>
+</div>
+
+<script>
+let autoRefreshTimer = null;
+
+function barColors(values) {
+  return values.map(v => v >= 0 ? "#3ddc84" : "#ff6b6b");
+}
+
+function renderResultsSection(containerId, data, chartCanvasId) {
+  const container = document.getElementById(containerId);
+  if (data.error) {
+    container.innerHTML = `<div class="empty-state">${data.error}</div>`;
+    return;
+  }
+
+  const s = data.summary;
+  const isTraining = "avgReturnPerTrade" in s;
+  const edge = s.modelReturn - s.benchmarkReturn;
+
+  let cardsHtml = `
+    <div class="cards">
+      <div class="card"><div class="metric-label">Trades taken</div><div class="metric-value">${s.trades.toLocaleString()}</div></div>
+      <div class="card"><div class="metric-label">Win rate</div><div class="metric-value">${s.winRate}%</div></div>
+      <div class="card"><div class="metric-label">Model return</div><div class="metric-value ${s.modelReturn>=0?'pos':'neg'}">${s.modelReturn}%</div></div>
+      <div class="card"><div class="metric-label">Buy-and-hold</div><div class="metric-value">${s.benchmarkReturn}%</div></div>
+      <div class="card"><div class="metric-label">vs. Buy-and-hold</div><div class="metric-value ${edge>=0?'pos':'neg'}">${edge>=0?'+':''}${edge.toFixed(1)}%</div></div>
+  `;
+  if (isTraining) {
+    cardsHtml += `<div class="card"><div class="metric-label">vs. Random timing</div><div class="metric-value ${(s.modelReturn-s.randomReturn)>=0?'pos':'neg'}">${(s.modelReturn-s.randomReturn>=0?'+':'')}${(s.modelReturn-s.randomReturn).toFixed(1)}%</div></div>`;
+  }
+  cardsHtml += `</div>`;
+
+  const generatedNote = data.generatedAt
+    ? `<p style="color:var(--muted); font-size:12px; margin-top:-6px;">Last run: ${new Date(data.generatedAt).toLocaleString()}</p>`
+    : "";
+
+  container.innerHTML = `
+    ${generatedNote}
+    ${cardsHtml}
+    <div class="chart-box"><canvas id="${chartCanvasId}"></canvas></div>
+    <div class="table-wrap">
+      <table><thead><tr><th>Ticker</th><th>Trades</th><th>Win Rate</th><th>Return</th></tr></thead>
+      <tbody id="${chartCanvasId}_tbody"></tbody></table>
+    </div>
+  `;
+
+  const sorted = [...data.tickers].sort((a, b) => b.return - a.return);
+  document.getElementById(`${chartCanvasId}_tbody`).innerHTML = sorted.map(t => `
+    <tr>
+      <td class="mono">${t.ticker}</td>
+      <td class="mono">${t.trades}</td>
+      <td class="mono">${t.winRate.toFixed(1)}%</td>
+      <td class="mono ${t.return>=0?'pos':'neg'}">${t.return>=0?'+':''}${t.return.toFixed(1)}%</td>
+    </tr>
+  `).join("");
+
+  new Chart(document.getElementById(chartCanvasId), {
+    type: "bar",
+    data: {
+      labels: data.tickers.map(t => t.ticker),
+      datasets: [{ data: data.tickers.map(t => t.return), backgroundColor: barColors(data.tickers.map(t => t.return)), borderRadius: 4 }]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: "#9aa3b2" }, grid: { color: "#262b36" } },
+        y: { ticks: { color: "#9aa3b2" }, grid: { color: "#262b36" } }
+      }
+    }
+  });
+}
+
+async function loadResults() {
+  try {
+    const trainRes = await fetch("/api/results/training");
+    renderResultsSection("trainingSection", await trainRes.json(), "trainChart");
+  } catch (e) {
+    document.getElementById("trainingSection").innerHTML = `<div class="empty-state">Could not load training results: ${e}</div>`;
+  }
+  try {
+    const holdRes = await fetch("/api/results/holdout");
+    renderResultsSection("holdoutSection", await holdRes.json(), "holdoutChart");
+  } catch (e) {
+    document.getElementById("holdoutSection").innerHTML = `<div class="empty-state">Could not load holdout results: ${e}</div>`;
+  }
+}
+
+async function loadTickers() {
+  const select = document.getElementById("tickerSelect");
+  try {
+    const res = await fetch("/api/tickers");
+    const data = await res.json();
+    const all = [...new Set([...data.training, ...data.holdout])].sort();
+    select.innerHTML = all.map(t => `<option value="${t}">${t}</option>`).join("");
+  } catch (e) {
+    select.innerHTML = `<option>Could not load tickers</option>`;
+  }
+}
+
+async function runPrediction() {
+  const ticker = document.getElementById("tickerSelect").value;
+  const btn = document.getElementById("predictBtn");
+  const resultDiv = document.getElementById("predictionResult");
+
+  btn.disabled = true;
+  resultDiv.innerHTML = `<p class="placeholder"><span class="live-dot"></span>Fetching live data and predicting ${ticker}...</p>`;
+
+  try {
+    const res = await fetch(`/api/predict/${ticker}`);
+    const data = await res.json();
+    btn.disabled = false;
+
+    if (data.error) {
+      resultDiv.innerHTML = `<p class="error-msg">${data.error}</p>`;
+      return;
+    }
+
+    const dirColor = data.direction === "UP" ? "pos" : "neg";
+    const dirArrow = data.direction === "UP" ? "&#8593;" : "&#8595;";
+
+    resultDiv.innerHTML = `
+      <div class="pred-grid">
+        <div class="pred-card"><div class="metric-label">Ticker</div><div class="metric-value">${data.ticker}</div></div>
+        <div class="pred-card"><div class="metric-label">Latest close</div><div class="metric-value">$${data.latest_close}</div></div>
+        <div class="pred-card"><div class="metric-label">Prediction</div><div class="metric-value ${dirColor}">${dirArrow} ${data.direction}</div></div>
+        <div class="pred-card"><div class="metric-label">Confidence</div><div class="metric-value">${data.confidence}%</div></div>
+        <div class="pred-card"><div class="metric-label">Horizon</div><div class="metric-value">${data.horizon_days}d</div></div>
+      </div>
+      <div class="pred-timestamp"><span class="live-dot"></span>Predicted at ${new Date().toLocaleTimeString()}</div>
+    `;
+  } catch (e) {
+    btn.disabled = false;
+    resultDiv.innerHTML = `<p class="error-msg">Prediction failed: ${e}</p>`;
+  }
+}
+
+document.getElementById("predictBtn").addEventListener("click", runPrediction);
+
+document.getElementById("autoRefresh").addEventListener("change", (e) => {
+  if (e.target.checked) {
+    runPrediction();
+    autoRefreshTimer = setInterval(runPrediction, 30000);
+  } else if (autoRefreshTimer) {
+    clearInterval(autoRefreshTimer);
+  }
+});
+
+loadTickers();
+loadResults();
+</script>
+</body>
+</html>

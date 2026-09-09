@@ -1,0 +1,33 @@
+# Holdout universe -- stocks the model NEVER trains on. Used only to
+# check whether the model generalizes, or just memorized its training
+# stocks. One ticker per line, same rules as tickers.txt.
+#
+# IMPORTANT: none of these should also appear in tickers.txt -- if you
+# add a stock to tickers.txt, make sure to remove it from here first
+# (or vice versa). retrain_all.py does not check this for you.
+
+# Tech
+CSCO
+QCOM
+
+# Finance
+PNC
+
+# Healthcare
+GILD
+
+# Energy
+OXY
+
+# Consumer staples
+CL
+CVS
+
+# Consumer discretionary
+YUM
+
+# Industrials
+MMM
+
+# Utilities
+DUK

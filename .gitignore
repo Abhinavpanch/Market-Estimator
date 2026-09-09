@@ -1,0 +1,11 @@
+# Generated / regenerable data — do not commit
+data/
+models/
+results/
+__pycache__/
+*.pyc
+*.pkl
+
+# Environments (accident prevention)
+.env
+venv/
