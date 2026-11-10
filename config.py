@@ -5,7 +5,10 @@ Edit this file first -- almost everything else reads from here.
 
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 ROOT_DIR = Path(__file__).parent
+load_dotenv(ROOT_DIR / ".env")
 
 
 def _load_ticker_list(filename: str) -> list:
@@ -43,11 +46,16 @@ if _overlap:
     )
 
 # --- Prediction target ----------------------------------------------------
-# How many trading days ahead are we predicting direction for?
-PREDICTION_HORIZON_DAYS = 7
+# Approximate a 7-calendar-day target with 5 trading sessions.
+PREDICTION_HORIZON_DAYS = 5
+PREDICTION_CALENDAR_DAYS = 7
+
+# Round-trip fees and slippage are ticker/broker dependent. This is a
+# conservative, adjustable estimate, not a substitute for your actual costs.
+ROUND_TRIP_COST_BPS = 25
 
 # How much history to pull for training (longer = more data, slower to fetch)
-HISTORY_PERIOD = "10y"      # yfinance period string, e.g. "2y", "5y", "10y", "max"
+HISTORY_PERIOD = "max"      # fetch the full history available from the data provider
 HISTORY_INTERVAL = "1d"     # daily bars -- keep this for the starter project
 
 # Optional: set both to fetch a SPECIFIC historical window instead of the
@@ -70,6 +78,9 @@ RESULTS_DIR = ROOT_DIR / "results"  # JSON snapshots the dashboard reads from
 # --- Walk-forward validation ----------------------------------------------
 # Number of folds for walk-forward validation (see models/train_model.py)
 N_WALKFORWARD_SPLITS = 5
+
+# Preserve the latest portion of the timeline for a final time-based test.
+FINAL_TEST_FRACTION = 0.15
 
 for d in (RAW_DATA_DIR, MODELS_DIR, NEWS_SENTIMENT_DIR, RESULTS_DIR):
     d.mkdir(parents=True, exist_ok=True)

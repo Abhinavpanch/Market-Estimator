@@ -42,6 +42,12 @@ source venv/bin/activate        # on Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+## Tests
+
+```bash
+python -m unittest discover -s tests -v
+```
+
 ## Running the pipeline, in order
 
 ```bash
@@ -81,6 +87,10 @@ honest limitations worth knowing:
   close to 0 even when it's actually good news. A finance-tuned model
   (e.g. FinBERT) would likely be a meaningfully better signal here if
   you want to take this further.
+- Live predictions read `FINNHUB_API_KEY` when each prediction is
+  requested and fetch sentiment for the prior market session, matching
+  training's one-session lag. Set the variable in the same terminal
+  session that starts the dashboard or runs predictions.
 
 **Getting a free Finnhub API key** (needed for sentiment; everything
 else works without it):
@@ -88,6 +98,16 @@ else works without it):
 2. Set it as an environment variable before running the sentiment scripts:
    - Windows (PowerShell): `$env:FINNHUB_API_KEY="your_key_here"`
    - Mac/Linux (bash): `export FINNHUB_API_KEY="your_key_here"`
+
+Or save it once in a `.env` file in the project root:
+
+```text
+FINNHUB_API_KEY=your_actual_key
+```
+
+`.env` is ignored by Git and loaded automatically by the project. Do not
+commit it or share its contents. Restart any running dashboard after
+changing the file.
 
 If you skip this, the pipeline still runs -- `news_sentiment` and
 `news_volume` will just default to 0 everywhere, same as before this
@@ -111,6 +131,8 @@ Then open **http://localhost:5000** in your browser. This gives you:
   Finnhub key) recent news sentiment, runs it through your trained model,
   and shows direction, confidence, and latest price. Check "Auto-refresh
   every 30s" to keep it updating continuously.
+  The prediction card also reports whether Finnhub returned articles or
+  the key is missing for the current process.
 
 **Requirements before this works:**
 - `models/model.pkl` must exist (run `models/train_model.py` first) --
@@ -119,6 +141,34 @@ Then open **http://localhost:5000** in your browser. This gives you:
   exist (run `backtest/backtest.py` / `backtest/test_holdout.py`) --
   needed for the results sections. If they don't exist yet, the dashboard
   shows a clear message telling you which script to run.
+
+### Accounts and personal watchlists
+
+The dashboard requires an email-verified account. Sign up with a username,
+email, and password, enter the one-time code sent to your email, then log in
+with either your username or email and password. Each account has its own
+watchlist; adding or removing a ticker only affects that signed-in account.
+
+Configure MongoDB Atlas and an SMTP email provider in the project-root
+`.env` file (which is ignored by Git):
+
+```text
+MONGO_URI=mongodb+srv://<database-user>:<password>@<cluster>/<database>
+MONGO_DB_NAME=ai_stock_estimator
+FLASK_SECRET_KEY=<long-random-secret>
+SMTP_HOST=<your-smtp-host>
+SMTP_PORT=587
+SMTP_USERNAME=<your-smtp-username>
+SMTP_PASSWORD=<your-smtp-password>
+MAIL_FROM=<verified-sender-email>
+SESSION_COOKIE_SECURE=false
+```
+
+Use your Atlas database user's credentials in `MONGO_URI` (not an Atlas
+account/API key), and allow the app host in Atlas Network Access. Keep these
+values private and never paste them into source control or chat. For an
+HTTPS deployment, set `SESSION_COOKIE_SECURE=true`; leave it `false` only
+for local HTTP development. Verification codes expire after 10 minutes.
 
 Leave the server running in its own terminal window while you use the
 dashboard; open a second terminal for running the other scripts.
@@ -195,31 +245,92 @@ python data/fetch_holdout_data.py           # fetch stocks the model NEVER train
 python features/build_holdout_features.py   # build features for them
 python backtest/test_holdout.py             # does the edge survive on unseen stocks?
 python backtest/threshold_sweep.py          # is the result stable across thresholds?
+python backtest/model_comparison.py         # compare LightGBM, logistic, technical-only
+python backtest/final_period.py             # evaluate the reserved latest 15% period
 ```
 
 `backtest/backtest.py` itself now also prints:
 - a **per-ticker breakdown** (is the return broadly spread, or all from one stock?)
 - a **random-entry baseline** (does randomly-timed trading do almost as well as the model?)
+- mark-to-market **maximum drawdown, annualized volatility, and Sharpe**
 
-If the holdout test shows a similar edge, the threshold sweep is stable
-across nearby values, and the model clearly beats the random baseline --
-that's a much stronger signal than a single backtest number. If any of
-those checks fail, treat the original result as likely regime-specific or
-overfit rather than a real, durable edge.
+The pipeline uses expanding walk-forward periods with a purge gap so that
+training labels cannot reach into the test period. The latest 15% of dates
+are excluded from development folds, model comparisons, and the final live
+model evaluation. After evaluation, the live model is refit on all labeled
+history, including the reserved dates; consequently, that historical period
+is not an independent test of the deployed fit. `model_comparison.py`
+compares a small, predeclared set of baselines using development folds only.
+Holdout testing also
+trains only on earlier dates from the training tickers before testing the
+unseen stocks in each later period. Metrics include Brier score and
+calibration bins; compare predicted and observed up rates rather than
+treating model confidence as certainty.
 
-### Testing on a different historical period
+Run `backtest/final_period.py` once after development choices are fixed. It
+reports the reserved segment against buy-and-hold and random timing, but
+this historical period appeared in earlier exploratory runs, so it is
+**not** an untouched independent test. A genuinely independent evaluation
+requires recording predictions prospectively and not tuning or retraining
+against that future period.
 
-Set `START_DATE` and `END_DATE` in `config.py` (format `"YYYY-MM-DD"`) to
-pull a specific historical window instead of the last 5 years, e.g. to see
-if results hold up in 2015-2020 rather than only the recent tech bull run.
-Re-run the full pipeline (steps 1-4 above) after changing these -- results
-will overwrite the previous run's files, so note down numbers you want to
-compare before switching windows.
+Signals are computed after the close, entered at the next session's open,
+and measured open-to-open over the configured horizon. News sentiment is
+lagged by one trading session. Backtests subtract a configurable 25 bps
+round-trip estimate for fees and slippage and show a 10/25/50 bps
+sensitivity. Replace this estimate with your broker, exchange, taxes, and
+market-specific costs before drawing conclusions. Partial fills, market
+impact, and taxes are not modeled.
+Risk metrics mark positions to market at daily opens; they do not capture
+intraday drawdown and their annualization is approximate across tickers
+with different trading calendars. They are diagnostics, not a portfolio
+risk model.
+
+These are still historical simulations, not proof of a durable edge. A
+positive holdout result can be noise, and market conditions may change.
+This project uses a current, manually maintained ticker list rather than
+point-in-time historical constituents, so survivorship bias remains. In
+the current expanded-history run, nonzero news sentiment covers about 0.3%
+of all feature rows and about 2% of rows in the most recent five years.
+The model may assign little influence to sentiment; live predictions show
+the fetched score, article count, and whether the fitted model learned to
+use those features. Cached market data is not refreshed automatically;
+rerun the fetch scripts before a new evaluation.
+
+### Rebuild and validate using already downloaded data
+
+The revised labels and validation require rebuilding the feature files,
+then retraining and rerunning both backtests. These commands use existing
+`data/raw/` CSVs and do not fetch market data:
+
+```bash
+python features/build_features.py
+python features/build_holdout_features.py
+python models/train_model.py
+python backtest/backtest.py
+python backtest/test_holdout.py
+python backtest/model_comparison.py
+python backtest/final_period.py
+```
+
+Walk-forward folds report results across multiple out-of-time periods.
+Avoid selecting a threshold or changing the feature set based on the same
+periods you later report as independent validation.
 
 
 ## What to change first
 
 - **`config.py`** — set your own ticker list and prediction horizon.
+- The default prediction target is five market sessions (approximately
+  seven calendar days) ahead, using the latest available price data. The
+  chart's illustrative target date is seven calendar days from today; market
+  holidays and delayed quotes can make that differ from the actual fifth
+  trading session. The projected line is not a model price target.
+- Historical price fetching uses `HISTORY_PERIOD = "max"` to request all
+  history available from the data provider. Actual history varies by
+  ticker. More history does not remove survivorship bias or guarantee
+  better predictions; after changing data range or horizon, rebuild
+  features and retrain before using the model.
 - **`features/build_features.py`** — this is where your real "edge" will come
   from. Start by adding/removing indicators and see what helps.
 - **`models/train_model.py`** — swap the model, tune hyperparameters, but do
@@ -228,8 +339,7 @@ compare before switching windows.
 
 ## Honest expectations
 
-A model that shows >70% directional accuracy on its first run is far more
-likely to have a data leak than a real edge. Real, defensible edges in this
-space are usually small (55-58% directional accuracy is already notable) —
-the value comes from consistency and good risk management, not from any
-single "lucky" model.
+A high accuracy or attractive historical return does not imply a
+deployable edge. Check calibration, out-of-time and unseen-stock periods,
+the random-entry baseline, and the cost sensitivity together. None
+guarantees future results.

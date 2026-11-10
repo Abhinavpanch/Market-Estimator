@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>AI Stock Estimator — Live Dashboard</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <style>
   :root{
@@ -28,10 +29,11 @@
     padding:22px 24px; margin-bottom:12px;
   }
   .predict-controls{ display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
-  select, button{
+  input, button{
     font-family:var(--font); font-size:14px; padding:9px 14px; border-radius:8px;
     border:1px solid var(--panel-border); background:#0c0e13; color:var(--ink);
   }
+  #tickerSearch{ width:min(280px, 100%); }
   button{ background:var(--accent); color:#0c0e13; font-weight:600; cursor:pointer; border:none; }
   button:disabled{ opacity:0.5; cursor:default; }
   label.auto{ font-size:13px; color:var(--muted); display:flex; align-items:center; gap:6px; }
@@ -60,6 +62,9 @@
 
   .chart-box{ background:var(--panel); border:1px solid var(--panel-border); border-radius:12px; padding:18px; margin-bottom:20px; }
   .chart-box canvas{ max-height:320px; }
+  .prediction-chart{ overflow-x:auto; }
+  .prediction-chart svg{ display:block; width:100%; min-width:640px; height:auto; }
+  .chart-caption{ color:var(--muted); font-size:12px; line-height:1.6; margin:4px 0 0; }
 
   table{ width:100%; border-collapse:collapse; font-size:13px; }
   th, td{ text-align:left; padding:8px 10px; border-bottom:1px solid var(--panel-border); }
@@ -74,29 +79,99 @@
     padding:20px; color:var(--muted); font-size:13px; line-height:1.6;
   }
   .empty-state code{ background:#0c0e13; padding:2px 6px; border-radius:4px; color:var(--accent); font-size:12px; }
+  .auth-panel{ max-width:440px; margin:8vh auto; background:var(--panel); border:1px solid var(--panel-border); border-radius:14px; padding:26px; }
+  .auth-panel h1{ margin:0 0 8px; font-size:22px; }
+  .auth-panel p{ color:var(--muted); font-size:13px; line-height:1.5; }
+  .auth-form{ display:grid; gap:12px; margin-top:20px; }
+  .auth-form input{ width:100%; }
+  .auth-form button, .watchlist-controls button{ min-height:38px; }
+  .auth-switch{ background:transparent; color:var(--accent); padding:4px; }
+  .auth-message{ min-height:20px; color:var(--muted); }
+  .auth-message.error{ color:var(--red); }
+  .header-controls{ display:flex; align-items:center; gap:12px; }
+  header{ display:flex; justify-content:space-between; align-items:center; gap:16px; }
+  .header-controls button{ background:#262b36; color:var(--ink); }
+  .watchlist-controls{ display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .watchlist-controls input{ width:min(280px, 100%); }
+  .watchlist-items{ display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+  .watchlist-item{ display:flex; align-items:center; gap:8px; padding:6px 8px 6px 12px; background:#0c0e13; border:1px solid var(--panel-border); border-radius:8px; }
+  .watchlist-item button{ padding:5px 8px; background:#262b36; color:var(--ink); }
+  .auth-form[hidden], #authView[hidden], #dashboardContent[hidden]{ display:none; }
+  @media(max-width:640px){ body{ padding:20px 14px 48px; } header{ align-items:flex-start; flex-direction:column; } }
   footer{ margin-top:40px; color:var(--muted); font-size:12px; text-align:center; }
 </style>
 </head>
 <body>
 <div class="wrap">
 
+  <section id="authView" class="auth-panel" aria-live="polite">
+    <h1>AI Stock Estimator</h1>
+    <p>Sign in to view predictions and your personal watchlist.</p>
+    <p id="authMessage" class="auth-message" role="status"></p>
+    <form class="auth-form" id="loginForm">
+      <label for="loginIdentifier">Username or email</label>
+      <input id="loginIdentifier" autocomplete="username" required>
+      <label for="loginPassword">Password</label>
+      <input id="loginPassword" type="password" autocomplete="current-password" required>
+      <button type="submit">Log in</button>
+      <button type="button" class="auth-switch" id="showSignup">Create an account</button>
+    </form>
+    <form class="auth-form" id="signupForm" hidden>
+      <label for="signupUsername">Username</label>
+      <input id="signupUsername" minlength="3" maxlength="32" pattern="[A-Za-z0-9_]+" autocomplete="username" required>
+      <label for="signupEmail">Email</label>
+      <input id="signupEmail" type="email" maxlength="254" autocomplete="email" required>
+      <label for="signupPassword">Password (10 characters minimum)</label>
+      <input id="signupPassword" type="password" minlength="10" maxlength="128" autocomplete="new-password" required>
+      <button type="submit">Send verification code</button>
+      <button type="button" class="auth-switch" id="showLogin">Back to login</button>
+    </form>
+    <form class="auth-form" id="verifyForm" hidden>
+      <label for="verifyEmail">Email</label>
+      <input id="verifyEmail" type="email" autocomplete="email" required>
+      <label for="verifyCode">Email verification code</label>
+      <input id="verifyCode" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" autocomplete="one-time-code" required>
+      <button type="submit">Verify email</button>
+      <button type="button" class="auth-switch" id="backToSignup">Resend code or change details</button>
+    </form>
+  </section>
+
+  <main id="dashboardContent" hidden>
   <header>
-    <h1>AI Stock Estimator — Live Dashboard</h1>
-    <p>Backtest results below refresh automatically from your last script run. Predictions are live, on demand.</p>
+    <div>
+      <h1>AI Stock Estimator — Live Dashboard</h1>
+      <p>Backtest results below refresh automatically from your last script run. Predictions are live, on demand.</p>
+    </div>
+    <div class="header-controls">
+      <span id="signedInUser"></span>
+      <button id="logoutButton" type="button">Log out</button>
+    </div>
   </header>
+
+  <h3 class="section-title">My watchlist</h3>
+  <div class="predict-panel">
+    <form class="watchlist-controls" id="watchlistForm">
+      <input id="watchlistTicker" placeholder="Add a ticker (e.g. AAPL)" aria-label="Ticker to add to your watchlist" maxlength="20" required>
+      <button type="submit">Add stock</button>
+    </form>
+    <div id="watchlistItems" class="watchlist-items" aria-live="polite"></div>
+    <p id="watchlistMessage" class="placeholder"></p>
+  </div>
 
   <h3 class="section-title">Live prediction</h3>
   <div class="predict-panel">
-    <div class="predict-controls">
-      <select id="tickerSelect"><option>Loading tickers...</option></select>
-      <button id="predictBtn">Predict</button>
+    <form class="predict-controls" id="predictionForm">
+      <input id="tickerSearch" list="tickerOptions" placeholder="Search or enter ticker (e.g. AAPL)" aria-label="Search or enter a stock ticker" autocomplete="off" required>
+      <datalist id="tickerOptions"></datalist>
+      <button id="predictBtn" type="submit">Search &amp; predict</button>
       <label class="auto">
         <input type="checkbox" id="autoRefresh"> Auto-refresh every 30s
       </label>
-    </div>
+    </form>
     <div class="prediction-result" id="predictionResult">
       <p class="placeholder">Select a stock and click Predict to get a live, on-demand estimate from your trained model.</p>
     </div>
+    <p class="placeholder">Probability is adjusted using historical out-of-fold results when available; it is not certainty or a price target.</p>
   </div>
 
   <h3 class="section-title">Training universe — backtest results</h3>
@@ -109,14 +184,209 @@
     <p class="placeholder" style="color:var(--muted);">Loading...</p>
   </div>
 
+  <h3 class="section-title">Reserved final period</h3>
+  <div id="finalPeriodSection">
+    <p class="placeholder" style="color:var(--muted);">Loading...</p>
+  </div>
+
   <footer>
     Not financial advice. Backtests are simplified simulations — see the project README for full caveats.
     Live predictions fetch fresh data on each request and may take a few seconds.
   </footer>
+  </main>
 </div>
 
 <script>
 let autoRefreshTimer = null;
+let csrfToken = "";
+
+async function apiRequest(url, options = {}) {
+  const headers = {...(options.headers || {})};
+  if (["POST", "PUT", "PATCH", "DELETE"].includes((options.method || "GET").toUpperCase()) && csrfToken) {
+    headers["X-CSRF-Token"] = csrfToken;
+  }
+  return fetch(url, {...options, headers});
+}
+
+async function postJson(url, payload) {
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(payload)
+  });
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || `Request failed (${response.status}).`);
+  return data;
+}
+
+function showAuthMessage(message, isError = false) {
+  const element = document.getElementById("authMessage");
+  element.textContent = message;
+  element.classList.toggle("error", isError);
+}
+
+function openAuthForm(formId) {
+  for (const id of ["loginForm", "signupForm", "verifyForm"]) {
+    document.getElementById(id).hidden = id !== formId;
+  }
+  showAuthMessage("");
+}
+
+async function showDashboard(data) {
+  csrfToken = data.csrfToken;
+  document.getElementById("authView").hidden = true;
+  document.getElementById("dashboardContent").hidden = false;
+  document.getElementById("signedInUser").textContent = data.username;
+  await Promise.all([loadTickers(), loadResults(), loadWatchlist()]);
+}
+
+async function checkSession() {
+  try {
+    const response = await fetch("/api/auth/me");
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Could not check your login.");
+    if (data.authenticated) {
+      await showDashboard(data);
+    } else {
+      openAuthForm("loginForm");
+    }
+  } catch (error) {
+    showAuthMessage(error.message, true);
+  }
+}
+
+document.getElementById("loginForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  try {
+    const data = await postJson("/api/auth/login", {
+      identifier: document.getElementById("loginIdentifier").value,
+      password: document.getElementById("loginPassword").value
+    });
+    await showDashboard(data);
+  } catch (error) {
+    showAuthMessage(error.message || "Login failed.", true);
+  }
+});
+
+document.getElementById("signupForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  const username = document.getElementById("signupUsername").value;
+  const email = document.getElementById("signupEmail").value;
+  try {
+    const data = await postJson("/api/auth/signup", {
+      username,
+      email,
+      password: document.getElementById("signupPassword").value
+    });
+    document.getElementById("verifyEmail").value = email;
+    openAuthForm("verifyForm");
+    showAuthMessage(data.message);
+  } catch (error) {
+    showAuthMessage(error.message || "Could not create your account.", true);
+  }
+});
+
+document.getElementById("verifyForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  try {
+    const data = await postJson("/api/auth/verify", {
+      email: document.getElementById("verifyEmail").value,
+      code: document.getElementById("verifyCode").value
+    });
+    document.getElementById("loginIdentifier").value = document.getElementById("verifyEmail").value;
+    openAuthForm("loginForm");
+    showAuthMessage(data.message);
+  } catch (error) {
+    showAuthMessage(error.message || "Email verification failed.", true);
+  }
+});
+
+document.getElementById("showSignup").addEventListener("click", () => openAuthForm("signupForm"));
+document.getElementById("showLogin").addEventListener("click", () => openAuthForm("loginForm"));
+document.getElementById("backToSignup").addEventListener("click", () => openAuthForm("signupForm"));
+
+document.getElementById("logoutButton").addEventListener("click", async () => {
+  try {
+    const response = await apiRequest("/api/auth/logout", {method: "POST"});
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Could not log out.");
+    if (autoRefreshTimer) clearInterval(autoRefreshTimer);
+    csrfToken = "";
+    document.getElementById("dashboardContent").hidden = true;
+    document.getElementById("authView").hidden = false;
+    openAuthForm("loginForm");
+  } catch (error) {
+    alert(error.message || "Could not log out.");
+  }
+});
+
+document.getElementById("watchlistForm").addEventListener("submit", async event => {
+  event.preventDefault();
+  const input = document.getElementById("watchlistTicker");
+  const message = document.getElementById("watchlistMessage");
+  try {
+    const response = await apiRequest("/api/watchlist", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ticker: input.value})
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Could not update your watchlist.");
+    input.value = "";
+    message.textContent = "";
+    renderWatchlist(data.tickers);
+  } catch (error) {
+    message.textContent = error.message || "Could not update your watchlist.";
+  }
+});
+
+function renderWatchlist(tickers) {
+  const container = document.getElementById("watchlistItems");
+  container.replaceChildren();
+  if (!tickers.length) {
+    container.textContent = "Your watchlist is empty. Add a ticker to get started.";
+    return;
+  }
+  for (const ticker of tickers) {
+    const item = document.createElement("div");
+    item.className = "watchlist-item";
+    const select = document.createElement("button");
+    select.type = "button";
+    select.textContent = ticker;
+    select.addEventListener("click", () => {
+      document.getElementById("tickerSearch").value = ticker;
+      runPrediction();
+      document.getElementById("predictionForm").scrollIntoView({behavior: "smooth"});
+    });
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.textContent = "Remove";
+    remove.setAttribute("aria-label", `Remove ${ticker} from watchlist`);
+    remove.addEventListener("click", async () => {
+      try {
+        const response = await apiRequest(`/api/watchlist/${encodeURIComponent(ticker)}`, {method: "DELETE"});
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || "Could not remove ticker.");
+        renderWatchlist(data.tickers);
+      } catch (error) {
+        document.getElementById("watchlistMessage").textContent = error.message || "Could not remove ticker.";
+      }
+    });
+    item.append(select, remove);
+    container.append(item);
+  }
+}
+
+async function loadWatchlist() {
+  try {
+    const response = await fetch("/api/watchlist");
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "Could not load your watchlist.");
+    renderWatchlist(data.tickers);
+  } catch (error) {
+    document.getElementById("watchlistMessage").textContent = error.message || "Could not load your watchlist.";
+  }
+}
 
 function barColors(values) {
   return values.map(v => v >= 0 ? "#3ddc84" : "#ff6b6b");
@@ -130,7 +400,6 @@ function renderResultsSection(containerId, data, chartCanvasId) {
   }
 
   const s = data.summary;
-  const isTraining = "avgReturnPerTrade" in s;
   const edge = s.modelReturn - s.benchmarkReturn;
 
   let cardsHtml = `
@@ -141,18 +410,38 @@ function renderResultsSection(containerId, data, chartCanvasId) {
       <div class="card"><div class="metric-label">Buy-and-hold</div><div class="metric-value">${s.benchmarkReturn}%</div></div>
       <div class="card"><div class="metric-label">vs. Buy-and-hold</div><div class="metric-value ${edge>=0?'pos':'neg'}">${edge>=0?'+':''}${edge.toFixed(1)}%</div></div>
   `;
-  if (isTraining) {
+  if ("randomReturn" in s) {
     cardsHtml += `<div class="card"><div class="metric-label">vs. Random timing</div><div class="metric-value ${(s.modelReturn-s.randomReturn)>=0?'pos':'neg'}">${(s.modelReturn-s.randomReturn>=0?'+':'')}${(s.modelReturn-s.randomReturn).toFixed(1)}%</div></div>`;
+  }
+  if (s.risk) {
+    cardsHtml += `
+      <div class="card"><div class="metric-label">Max drawdown</div><div class="metric-value">${s.risk.maxDrawdown}%</div></div>
+      <div class="card"><div class="metric-label">Annualized volatility</div><div class="metric-value">${s.risk.annualizedVolatility}%</div></div>
+      <div class="card"><div class="metric-label">Annualized Sharpe</div><div class="metric-value">${s.risk.annualizedSharpe ?? "N/A"}</div></div>
+    `;
   }
   cardsHtml += `</div>`;
 
   const generatedNote = data.generatedAt
     ? `<p style="color:var(--muted); font-size:12px; margin-top:-6px;">Last run: ${new Date(data.generatedAt).toLocaleString()}</p>`
     : "";
+  const calibrationNote = data.calibration && data.calibration.brierScore !== null
+    ? `<p style="color:var(--muted); font-size:12px;">Raw out-of-sample Brier score: ${data.calibration.brierScore} (lower is better). Bins show predicted vs. observed up rates: ${data.calibration.bins.map(b => `${b.range}: ${(b.predicted*100).toFixed(0)}% vs. ${(b.observed*100).toFixed(0)}% (n=${b.count})`).join("; ")}.${data.calibrationHoldout ? ` Latest-fold calibration check: raw Brier ${data.calibrationHoldout.rawBrierScore}, adjusted ${data.calibrationHoldout.calibratedBrierScore} (fit on earlier folds only).` : ""}</p>`
+    : "";
+  const costNote = data.assumedRoundTripCostBps
+    ? `<p style="color:var(--muted); font-size:12px;">Returns assume ${data.assumedRoundTripCostBps} bps round-trip fees and slippage. Cost sensitivity: ${(data.costSensitivity||[]).map(c => `${c.roundTripCostBps} bps → ${c.portfolioReturn}%`).join("; ")}.</p>`
+    : "";
+  const periodNote = data.periodMetrics && data.periodMetrics.length
+    ? `<p style="color:var(--muted); font-size:12px;">Out-of-time folds: ${data.periodMetrics.map(p => `fold ${p.fold}, ${p.start}–${p.end}: ${p.modelReturn}% vs. ${p.benchmarkReturn}% buy-and-hold${p.brierScore !== undefined ? `, Brier ${p.brierScore}` : ""}`).join("; ")}.</p>`
+    : "";
 
   container.innerHTML = `
     ${generatedNote}
     ${cardsHtml}
+    ${calibrationNote}
+    ${costNote}
+    ${periodNote}
+    ${s.risk ? `<p class="chart-caption">Risk uses daily mark-to-market open prices and is approximate; it does not model intraday drawdown, taxes, or market impact.</p>` : ""}
     <div class="chart-box"><canvas id="${chartCanvasId}"></canvas></div>
     <div class="table-wrap">
       <table><thead><tr><th>Ticker</th><th>Trades</th><th>Win Rate</th><th>Return</th></tr></thead>
@@ -187,6 +476,26 @@ function renderResultsSection(containerId, data, chartCanvasId) {
   });
 }
 
+function renderFinalPeriod(data) {
+  const container = document.getElementById("finalPeriodSection");
+  if (data.error) {
+    container.innerHTML = `<div class="empty-state">${data.error}</div>`;
+    return;
+  }
+  const s = data.summary;
+  container.innerHTML = `
+    <div class="cards">
+      <div class="card"><div class="metric-label">Dates</div><div class="metric-value">${s.testStart} – ${s.testEnd}</div></div>
+      <div class="card"><div class="metric-label">Rows / trades</div><div class="metric-value">${s.testRows.toLocaleString()} / ${s.trades.toLocaleString()}</div></div>
+      <div class="card"><div class="metric-label">Model return</div><div class="metric-value">${s.modelReturn}%</div></div>
+      <div class="card"><div class="metric-label">Buy-and-hold</div><div class="metric-value">${s.benchmarkReturn}%</div></div>
+      <div class="card"><div class="metric-label">Brier score</div><div class="metric-value">${s.brierScore}</div></div>
+      <div class="card"><div class="metric-label">Max drawdown</div><div class="metric-value">${s.risk.maxDrawdown}%</div></div>
+    </div>
+    <div class="empty-state">${s.warning}</div>
+  `;
+}
+
 async function loadResults() {
   try {
     const trainRes = await fetch("/api/results/training");
@@ -200,35 +509,49 @@ async function loadResults() {
   } catch (e) {
     document.getElementById("holdoutSection").innerHTML = `<div class="empty-state">Could not load holdout results: ${e}</div>`;
   }
+  try {
+    const finalRes = await fetch("/api/results/final-period");
+    renderFinalPeriod(await finalRes.json());
+  } catch (e) {
+    document.getElementById("finalPeriodSection").innerHTML = `<div class="empty-state">Could not load final-period results: ${e}</div>`;
+  }
 }
 
 async function loadTickers() {
-  const select = document.getElementById("tickerSelect");
+  const options = document.getElementById("tickerOptions");
   try {
     const res = await fetch("/api/tickers");
     const data = await res.json();
     const all = [...new Set([...data.training, ...data.holdout])].sort();
-    select.innerHTML = all.map(t => `<option value="${t}">${t}</option>`).join("");
+    options.innerHTML = all.map(t => `<option value="${t}">`).join("");
   } catch (e) {
-    select.innerHTML = `<option>Could not load tickers</option>`;
+    options.innerHTML = "";
   }
 }
 
 async function runPrediction() {
-  const ticker = document.getElementById("tickerSelect").value;
+  const ticker = document.getElementById("tickerSearch").value.trim().toUpperCase();
   const btn = document.getElementById("predictBtn");
   const resultDiv = document.getElementById("predictionResult");
+  if (btn.disabled) return;
+  if (!/^[A-Z0-9.^=-]{1,20}$/.test(ticker)) {
+    resultDiv.textContent = "Enter a valid ticker symbol, such as AAPL or BRK-B.";
+    resultDiv.className = "prediction-result error-msg";
+    return;
+  }
 
   btn.disabled = true;
-  resultDiv.innerHTML = `<p class="placeholder"><span class="live-dot"></span>Fetching live data and predicting ${ticker}...</p>`;
+  resultDiv.className = "prediction-result";
+  resultDiv.innerHTML = `<p class="placeholder"><span class="live-dot"></span>Fetching candles and predicting ${ticker}...</p>`;
 
   try {
-    const res = await fetch(`/api/predict/${ticker}`);
+    const res = await fetch(`/api/predict/${encodeURIComponent(ticker)}`);
     const data = await res.json();
     btn.disabled = false;
 
-    if (data.error) {
-      resultDiv.innerHTML = `<p class="error-msg">${data.error}</p>`;
+    if (!res.ok || data.error) {
+      resultDiv.textContent = data.error || `Prediction failed (${res.status}).`;
+      resultDiv.className = "prediction-result error-msg";
       return;
     }
 
@@ -240,18 +563,93 @@ async function runPrediction() {
         <div class="pred-card"><div class="metric-label">Ticker</div><div class="metric-value">${data.ticker}</div></div>
         <div class="pred-card"><div class="metric-label">Latest close</div><div class="metric-value">$${data.latest_close}</div></div>
         <div class="pred-card"><div class="metric-label">Prediction</div><div class="metric-value ${dirColor}">${dirArrow} ${data.direction}</div></div>
-        <div class="pred-card"><div class="metric-label">Confidence</div><div class="metric-value">${data.confidence}%</div></div>
-        <div class="pred-card"><div class="metric-label">Horizon</div><div class="metric-value">${data.horizon_days}d</div></div>
+        <div class="pred-card"><div class="metric-label">${data.probability_calibrated ? "Calibrated P(UP)" : "Raw P(UP)"}</div><div class="metric-value">${data.probability_up}%</div></div>
+        <div class="pred-card"><div class="metric-label">Direction confidence</div><div class="metric-value">${data.confidence}%</div></div>
+        <div class="pred-card"><div class="metric-label">Horizon</div><div class="metric-value">~${data.horizon_calendar_days} days</div></div>
+        <div class="pred-card"><div class="metric-label">News sentiment</div><div class="metric-value">${Number(data.sentiment_score ?? 0) >= 0 ? "+" : ""}${Number(data.sentiment_score ?? 0).toFixed(3)}</div><div class="metric-sub">${data.sentiment_article_count ?? 0} articles · ${data.sentiment_model_uses_feature ? "learned by model" : "not learned by this model"}</div></div>
       </div>
-      <div class="pred-timestamp"><span class="live-dot"></span>Predicted at ${new Date().toLocaleTimeString()}</div>
+      <div class="chart-box">
+        <div class="prediction-chart">${renderPredictionChart(data)}</div>
+        <p class="chart-caption">Daily candles show adjusted OHLC prices through ${data.price_as_of || "the latest available session"}. News sentiment is from the prior session. The dotted path illustrates direction only—not a model price target or guarantee.</p>
+      </div>
+      <div class="pred-timestamp"><span class="live-dot"></span>Data as of ${data.price_as_of || "unknown"} · illustrative target date ${data.forecast_date}</div>
     `;
   } catch (e) {
     btn.disabled = false;
-    resultDiv.innerHTML = `<p class="error-msg">Prediction failed: ${e}</p>`;
+    resultDiv.textContent = `Prediction failed: ${e.message}`;
+    resultDiv.className = "prediction-result error-msg";
   }
 }
 
-document.getElementById("predictBtn").addEventListener("click", runPrediction);
+function renderPredictionChart(data) {
+  const bars = data.history;
+  if (!Array.isArray(bars) || bars.length < 2) {
+    return `<p class="placeholder">Not enough price history to draw a chart.</p>`;
+  }
+
+  const width = 1000, height = 420;
+  const left = 72, right = 900, top = 28, bottom = 344;
+  const timestamps = bars.map(bar => Date.parse(`${bar.date}T00:00:00Z`));
+  const last = bars[bars.length - 1];
+  const forecastDate = data.forecast_date || last.date;
+  const forecastTimestamp = Date.parse(`${forecastDate}T00:00:00Z`);
+  const startTimestamp = timestamps[0];
+  const endTimestamp = Math.max(forecastTimestamp, timestamps[timestamps.length - 1] + 1);
+  const x = timestamp => left + (timestamp - startTimestamp) / (endTimestamp - startTimestamp) * (right - left);
+  const prices = bars.flatMap(bar => [bar.low, bar.high]);
+  prices.push(data.illustrative_close);
+  const minPrice = Math.min(...prices), maxPrice = Math.max(...prices);
+  const padding = (maxPrice - minPrice || maxPrice * 0.02) * 0.08;
+  const min = minPrice - padding, max = maxPrice + padding;
+  const y = price => bottom - (price - min) / (max - min) * (bottom - top);
+  const dateGaps = timestamps.slice(1).map((timestamp, i) => timestamp - timestamps[i]).sort((a, b) => a - b);
+  const medianDateGap = dateGaps[Math.floor(dateGaps.length / 2)];
+  const candleWidth = Math.max(2, Math.min(9, (right - left) * medianDateGap / (endTimestamp - startTimestamp) * 0.68));
+  const positive = data.direction === "UP";
+  const color = positive ? "#3ddc84" : "#ff6b6b";
+  const grid = Array.from({length: 5}, (_, i) => {
+    const price = max - (max - min) * i / 4;
+    const py = y(price);
+    return `<line x1="${left}" y1="${py}" x2="${right}" y2="${py}" stroke="#262b36"/><text x="${left-10}" y="${py+4}" text-anchor="end" fill="#9aa3b2" font-size="12">${price.toFixed(2)}</text>`;
+  }).join("");
+  const candles = bars.map((bar, i) => {
+    const cx = x(timestamps[i]), openY = y(bar.open), closeY = y(bar.close);
+    const candleColor = bar.close >= bar.open ? "#3ddc84" : "#ff6b6b";
+    const bodyY = Math.min(openY, closeY);
+    const bodyHeight = Math.max(1, Math.abs(closeY - openY));
+    return `<g><title>${bar.date} — O ${bar.open.toFixed(2)}, H ${bar.high.toFixed(2)}, L ${bar.low.toFixed(2)}, C ${bar.close.toFixed(2)}</title><line x1="${cx}" y1="${y(bar.high)}" x2="${cx}" y2="${y(bar.low)}" stroke="${candleColor}"/><rect x="${cx-candleWidth/2}" y="${bodyY}" width="${candleWidth}" height="${bodyHeight}" fill="${candleColor}"/></g>`;
+  }).join("");
+  const closeLine = bars.map((bar, i) => `${i ? "L" : "M"}${x(timestamps[i])},${y(bar.close)}`).join(" ");
+  const lastX = x(timestamps[timestamps.length - 1]), lastY = y(last.close);
+  const forecastX = x(forecastTimestamp), forecastY = y(data.illustrative_close);
+  const dateTicks = Array.from({length: 6}, (_, i) => {
+    const timestamp = startTimestamp + (endTimestamp - startTimestamp) * i / 5;
+    const tx = x(timestamp);
+    const label = new Date(timestamp).toLocaleDateString(undefined, {
+      month: "short", day: "numeric", timeZone: "UTC"
+    });
+    const anchor = i === 0 ? "start" : i === 5 ? "end" : "middle";
+    return `<line x1="${tx}" y1="${top}" x2="${tx}" y2="${bottom}" stroke="#262b36" stroke-dasharray="2 5"/><text x="${tx}" y="${bottom+25}" text-anchor="${anchor}" fill="#9aa3b2" font-size="12">${label}</text>`;
+  }).join("");
+
+  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="${data.ticker} daily candlestick chart with illustrative ${data.direction.toLowerCase()} direction path">
+    ${grid}
+    ${dateTicks}
+    <line x1="${lastX}" y1="${top}" x2="${lastX}" y2="${bottom}" stroke="#7aa2ff" stroke-dasharray="3 5"/>
+    <line x1="${lastX}" y1="${lastY}" x2="${right}" y2="${lastY}" stroke="#7aa2ff" stroke-dasharray="4 4" opacity=".8"/>
+    ${candles}
+    <path d="${closeLine}" fill="none" stroke="#e8eaed" stroke-width="1.5" opacity=".8"/>
+    <path d="M${lastX},${lastY} L${forecastX},${forecastY}" fill="none" stroke="${color}" stroke-width="3" stroke-dasharray="8 7"/>
+    <circle cx="${forecastX}" cy="${forecastY}" r="5" fill="${color}"/>
+    <text x="${right+8}" y="${lastY+4}" fill="#7aa2ff" font-size="12">${last.close.toFixed(2)}</text>
+    <text x="${forecastX}" y="${top+14}" text-anchor="end" fill="${color}" font-size="12">Illustrative ${data.direction} · ${forecastDate}</text>
+  </svg>`;
+}
+
+document.getElementById("predictionForm").addEventListener("submit", event => {
+  event.preventDefault();
+  runPrediction();
+});
 
 document.getElementById("autoRefresh").addEventListener("change", (e) => {
   if (e.target.checked) {
@@ -262,8 +660,7 @@ document.getElementById("autoRefresh").addEventListener("change", (e) => {
   }
 });
 
-loadTickers();
-loadResults();
+checkSession();
 </script>
 </body>
 </html>

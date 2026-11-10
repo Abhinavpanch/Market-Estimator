@@ -30,51 +30,58 @@ _spec.loader.exec_module(_backtest_core)
 
 simulate_fold = _backtest_core.simulate_fold
 enforce_non_overlapping = _backtest_core.enforce_non_overlapping
-compute_equity_curve = _backtest_core.compute_equity_curve
-compute_buy_and_hold_benchmark = _backtest_core.compute_buy_and_hold_benchmark
+compute_portfolio_equity_curve = _backtest_core.compute_portfolio_equity_curve
+compute_buy_and_hold_equity_curve = _backtest_core.compute_buy_and_hold_equity_curve
 
 THRESHOLDS_TO_TEST = [0.52, 0.55, 0.58, 0.60, 0.65]
 
 
-def run_for_threshold(df: pd.DataFrame, threshold: float):
-    all_signals = []
-    test_start_dates = []
-
-    for train_df, test_df in walk_forward_splits(df, config.N_WALKFORWARD_SPLITS):
-        test_start_dates.append(test_df.index.min())
-        result = simulate_fold(train_df, test_df, threshold=threshold)
-        if result is not None:
-            all_signals.append(result)
-
-    if not all_signals:
-        return None
-
-    raw_signals = pd.concat(all_signals)
-    trades = enforce_non_overlapping(raw_signals)
+def run_for_threshold(df: pd.DataFrame, oof_predictions: pd.DataFrame,
+                      threshold: float):
+    trades = enforce_non_overlapping(
+        oof_predictions[oof_predictions["pred_prob"] > threshold]
+    )
     if trades.empty:
         return None
 
-    n_tickers = trades["ticker"].nunique()
-    portfolio_multiple = compute_equity_curve(trades, n_tickers)
-    benchmark_multiple = compute_buy_and_hold_benchmark(df, config.TICKERS, test_start_dates)
+    start_date = oof_predictions.index.min()
+    end_date = max(
+        oof_predictions.index.max(),
+        pd.to_datetime(trades["forward_exit_date"]).max(),
+    )
+    portfolio_equity = compute_portfolio_equity_curve(
+        df, trades, config.TICKERS, start_date, end_date
+    )
+    benchmark_equity = compute_buy_and_hold_equity_curve(
+        df, config.TICKERS, start_date, end_date
+    )
 
     return {
         "threshold": threshold,
         "trades": len(trades),
         "win_rate": (trades["net_return"] > 0).mean(),
-        "portfolio_return": portfolio_multiple - 1,
-        "benchmark_return": benchmark_multiple - 1,
+        "portfolio_return": float(portfolio_equity.iloc[-1]) - 1,
+        "benchmark_return": float(benchmark_equity.iloc[-1]) - 1,
     }
 
 
 def main():
     df = load_features()
-    print("Sweeping confidence thresholds -- this retrains a model per threshold, "
-          "so it will take a little while.\n")
+    predictions = []
+    for fold_i, (train_df, test_df) in enumerate(
+        walk_forward_splits(df, config.N_WALKFORWARD_SPLITS), start=1
+    ):
+        fold_predictions = simulate_fold(train_df, test_df)
+        fold_predictions["fold"] = fold_i
+        predictions.append(fold_predictions)
+    if not predictions:
+        raise ValueError("No walk-forward predictions were produced.")
+    oof_predictions = pd.concat(predictions)
+    print("Sweeping thresholds over the same out-of-sample predictions.\n")
 
     print(f"{'THRESHOLD':>10s}{'TRADES':>9s}{'WIN RATE':>10s}{'MODEL RET':>12s}{'BUY&HOLD':>11s}{'BEAT?':>8s}")
     for threshold in THRESHOLDS_TO_TEST:
-        result = run_for_threshold(df, threshold)
+        result = run_for_threshold(df, oof_predictions, threshold)
         if result is None:
             print(f"{threshold:>10.2f}   no trades taken at this threshold")
             continue

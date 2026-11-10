@@ -67,22 +67,26 @@ def merge_sentiment(df: pd.DataFrame, ticker: str) -> pd.DataFrame:
         df["news_sentiment"] = pd.NA
         df["news_volume"] = pd.NA
 
-    df["news_sentiment"] = df["news_sentiment"].fillna(0.0)
-    df["news_volume"] = df["news_volume"].fillna(0.0)
+    df[["news_sentiment", "news_volume"]] = (
+        df[["news_sentiment", "news_volume"]].fillna(0.0).shift(1).fillna(0.0)
+    )
     return df
 
 
 def add_label(df: pd.DataFrame, horizon: int) -> pd.DataFrame:
     """
-    Label = 1 if price is higher `horizon` trading days in the future.
+    Signal is formed after today's close; enter at the next session's open
+    and exit `horizon` trading days later. The label is 1 for a positive
+    open-to-open return.
 
-    IMPORTANT: this uses .shift(-horizon), which looks FORWARD in time.
-    That's correct for building a label, but it means the last `horizon`
-    rows of each ticker's data have no valid label (nothing to compare to)
-    and must be dropped before training -- handled in the caller.
+    The forward return is used by validation/backtests so the return period
+    exactly matches the target and does not assume execution at a known close.
     """
-    future_close = df["close"].shift(-horizon)
-    df["label"] = (future_close > df["close"]).astype(int)
+    entry_open = df["open"].shift(-1)
+    exit_open = df["open"].shift(-(horizon + 1))
+    df["forward_return"] = exit_open / entry_open - 1
+    df["forward_exit_date"] = pd.Series(df.index, index=df.index).shift(-(horizon + 1))
+    df["label"] = (df["forward_return"] > 0).astype(int)
     return df
 
 
